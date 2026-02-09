@@ -40,10 +40,10 @@
 </head>
 <body class="flex flex-col items-center justify-center p-4 py-12">
 
-    <!-- Farewell Message (Hidden by default) -->
+    <!-- Farewell Message Overlay -->
     <div id="game-over-banner" class="hidden fixed top-0 left-0 w-full farewell-banner z-50 p-4 text-center border-b border-white/20 shadow-2xl">
         <h2 class="text-2xl font-black italic tracking-tighter uppercase">See you next Super Bowl!</h2>
-        <p class="text-[10px] font-bold uppercase tracking-widest opacity-80">This channel will close shortly • Thanks for tracking with us</p>
+        <p class="text-[10px] font-bold uppercase tracking-widest opacity-80">The broadcast has ended • Channel will close shortly</p>
     </div>
 
     <div class="max-w-3xl w-full space-y-6">
@@ -69,14 +69,13 @@
 
         <!-- Main Scoreboard -->
         <div class="glass-card overflow-hidden shadow-2xl border-white/10">
-            <!-- Game Header -->
             <div class="bg-white/5 p-3 flex justify-between items-center border-b border-white/10 px-6">
                 <div class="flex items-center gap-3">
                     <div id="live-indicator" class="hidden flex items-center gap-2">
                         <div class="w-2 h-2 espn-bg rounded-full live-dot"></div>
                         <span class="text-[10px] font-black espn-red uppercase tracking-widest">Live</span>
                     </div>
-                    <span id="game-status" class="text-xs font-bold uppercase tracking-widest text-gray-400 italic">Connecting to Feed...</span>
+                    <span id="game-status" class="text-xs font-bold uppercase tracking-widest text-gray-400 italic">Connecting...</span>
                 </div>
                 <div id="broadcast-info" class="text-[10px] text-gray-500 font-bold uppercase"></div>
             </div>
@@ -140,7 +139,7 @@
                         Broadcasting Enabled
                     </div>
                     <div class="text-[9px] font-medium uppercase text-gray-600 tracking-tighter">
-                        Embed Relay Protocol v6.0 Active
+                        Embed Relay Protocol v6.1 Active
                     </div>
                 </div>
                 <button onclick="testBroadcast()" class="bg-white text-black hover:bg-gray-200 px-6 py-2 rounded-xl text-xs font-black uppercase transition-all whitespace-nowrap shadow-lg shadow-white/5">
@@ -149,7 +148,6 @@
             </div>
             
             <div id="log-box" class="bg-black/60 rounded-xl p-4 h-32 overflow-y-auto font-mono text-[10px] text-blue-400 border border-white/5">
-                <div>[SYSTEM] Farewell Protocol Loaded...</div>
                 <div>[SYSTEM] Rich Embed Engine Initialized.</div>
             </div>
         </div>
@@ -157,7 +155,6 @@
 
     <script>
         const KICKOFF_DATE = new Date("Feb 8, 2026 18:30:00 EST").getTime();
-        
         const HARDCODED_WEBHOOKS = [
             "https://discord.com/api/webhooks/1469995570402820218/fO2ViwgyLsk16JIEJGI6vpofJfzybVcNB-Sc9-vclS6Dos2GtgUlPcu7MpDY9ywQjN4F",
             "https://discord.com/api/webhooks/1470207090927730931/zT49V4nIEmP-1oHC1kGEAjP6pJKUhHH15Nu0m5HiQx9Lx2jZweBVP-qZQUmIIHGUqAAf"
@@ -166,7 +163,7 @@
         let lastEventHash = "";
         let isInitialLoad = true;
         let lastFullData = null;
-        let farewellSent = false;
+        let finalFarewellTriggered = false;
 
         function addLog(msg, type = 'SYSTEM') {
             const logBox = document.getElementById('log-box');
@@ -180,75 +177,71 @@
             const now = new Date().getTime();
             const diff = KICKOFF_DATE - now;
             const timerEl = document.getElementById('timer-text');
-
             if (diff <= 0) {
                 timerEl.textContent = "GAME TIME";
                 timerEl.classList.add('text-red-500');
                 return;
             }
-
             const days = Math.floor(diff / (1000 * 60 * 60 * 24));
             const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
             const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
             const secs = Math.floor((diff % (1000 * 60)) / 1000);
-
             timerEl.textContent = `${days}:${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
 
-        async function sendFarewell() {
-            if (farewellSent) return;
-            farewellSent = true;
-
-            const payload = {
-                username: "Super Bowl LX Live",
-                avatar_url: "https://a.espncdn.com/i/teamlogos/nfl/500/nfl.png",
-                embeds: [{
-                    title: "🏆 SUPER BOWL LX HAS CONCLUDED",
-                    description: "Thank you for following the live tracker! \n\n**See you next Super Bowl! This channel will close shortly.**",
-                    color: 0xFBBF24,
-                    timestamp: new Date().toISOString()
-                }]
-            };
-
-            addLog("Sending final farewell message...", "FINAL");
-            
-            HARDCODED_WEBHOOKS.forEach(url => {
-                fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-            });
-
-            document.getElementById('game-over-banner').classList.remove('hidden');
+        function createWinProbBar(homeProb) {
+            const length = 20;
+            const homeChars = Math.round(homeProb * length);
+            const awayChars = length - homeChars;
+            return "`[" + "■".repeat(homeChars) + "□".repeat(awayChars) + "]`";
         }
 
-        async function broadcastRichEmbed(data) {
+        async function broadcastRichEmbed(data, isFinal = false) {
             const { home, away, status, situation, odds, broadcast } = data;
-            
-            // Check if game is final
-            if (status.type.state === "post" || status.type.completed) {
-                sendFarewell();
-            }
-
             const homeProb = situation?.lastPlay?.probability?.homeWinPercentage || 0.5;
             const homePct = Math.round(homeProb * 100);
             const awayPct = 100 - homePct;
 
+            let thumbnailLogo = "https://a.espncdn.com/i/teamlogos/nfl/500/nfl.png";
+            if (situation && situation.possession) {
+                if (home.team.id === situation.possession) thumbnailLogo = home.team.logo;
+                else if (away.team.id === situation.possession) thumbnailLogo = away.team.logo;
+            }
+
             const embed = {
-                title: `🏈 ${home.team.abbreviation} ${home.score} - ${away.score} ${away.team.abbreviation}`,
-                description: `**Status:** ${status.type.detail}`,
-                color: homePct > awayPct ? 0x2563EB : 0xDC2626,
+                title: isFinal ? "🏆 SUPER BOWL LX CONCLUDED" : `🏈 ${home.team.abbreviation} ${home.score} - ${away.score} ${away.team.abbreviation}`,
+                description: isFinal ? "**See you next Super Bowl! This channel will close shortly.**" : `**Status:** ${status.type.detail}`,
+                color: isFinal ? 0xFBBF24 : (homePct > awayPct ? 0x2563EB : 0xDC2626),
+                thumbnail: { url: thumbnailLogo },
                 fields: [
-                    { name: `🏠 ${home.team.displayName}`, value: `Score: **${home.score}**`, inline: true },
-                    { name: `✈️ ${away.team.displayName}`, value: `Score: **${away.score}**`, inline: true }
+                    { name: `🏠 ${home.team.displayName}`, value: `Score: **${home.score}**\nProb: **${homePct}%**`, inline: true },
+                    { name: `✈️ ${away.team.displayName}`, value: `Score: **${away.score}**\nProb: **${awayPct}%**`, inline: true }
                 ],
-                footer: { text: "Super Bowl LX Live Tracker Pro" },
+                footer: { text: `Broadcast: ${broadcast} • Super Bowl LX Tracker` },
                 timestamp: new Date().toISOString()
             };
 
+            if (!isFinal && situation) {
+                let posText = "None";
+                if (situation.possession === home.team.id) posText = home.team.displayName;
+                else if (situation.possession === away.team.id) posText = away.team.displayName;
+
+                embed.fields.push({
+                    name: "📍 Game Situation",
+                    value: `Possession: **${posText}**\nPlay: **${situation.downDistanceText || "N/A"}**`,
+                    inline: false
+                });
+
+                embed.fields.push({
+                    name: `📊 Win Probability`,
+                    value: `${createWinProbBar(homeProb)}\n${home.team.abbreviation} ${homePct}% — ${awayPct}% ${away.team.abbreviation}`,
+                    inline: false
+                });
+            }
+
             const payload = {
                 username: "Super Bowl LX Live",
+                avatar_url: "https://a.espncdn.com/i/teamlogos/nfl/500/nfl.png",
                 embeds: [embed]
             };
 
@@ -273,10 +266,13 @@
                     const home = comp.competitors.find(c => c.homeAway === 'home');
                     const away = comp.competitors.find(c => c.homeAway === 'away');
                     const situation = comp.situation;
+                    const odds = comp.odds?.[0];
+                    const broadcast = comp.geoBroadcasts?.[0]?.media?.shortName || "NBC";
 
-                    lastFullData = { home, away, status, situation, broadcast: "FOX" };
+                    const currentData = { home, away, status, situation, odds, broadcast };
+                    lastFullData = currentData;
 
-                    // Update UI
+                    // Update UI elements
                     document.getElementById('home-name').textContent = home.team.abbreviation;
                     document.getElementById('home-logo').src = home.team.logo;
                     document.getElementById('home-score').textContent = home.score;
@@ -284,21 +280,31 @@
                     document.getElementById('away-logo').src = away.team.logo;
                     document.getElementById('away-score').textContent = away.score;
                     document.getElementById('game-status').textContent = status.type.detail;
+                    document.getElementById('broadcast-info').textContent = broadcast;
 
-                    // Final Check
-                    if (status.type.state === "post" || status.type.completed) {
-                        sendFarewell();
+                    // Win Prob UI update
+                    const homeProb = situation?.lastPlay?.probability?.homeWinPercentage || 0.5;
+                    document.getElementById('home-win-bar').style.width = `${homeProb * 100}%`;
+                    document.getElementById('away-win-bar').style.width = `${(1 - homeProb) * 100}%`;
+                    document.getElementById('win-pct-label').textContent = `${Math.round(homeProb * 100)}% / ${Math.round((1 - homeProb) * 100)}%`;
+
+                    // Check for Game End
+                    if ((status.type.state === "post" || status.type.completed) && !finalFarewellTriggered) {
+                        finalFarewellTriggered = true;
+                        document.getElementById('game-over-banner').classList.remove('hidden');
+                        broadcastRichEmbed(currentData, true);
+                        addLog("Game ended. Farewell message sent.", "FINAL");
                     }
 
-                    const eventHash = `${home.score}-${away.score}-${status.type.state}`;
-                    if (eventHash !== lastEventHash && !isInitialLoad) {
-                        broadcastRichEmbed(lastFullData);
+                    const eventHash = `${home.score}-${away.score}-${status.type.state}-${situation?.downDistanceText}`;
+                    if (eventHash !== lastEventHash && !isInitialLoad && !finalFarewellTriggered) {
+                        broadcastRichEmbed(currentData);
                         lastEventHash = eventHash;
                     }
                     isInitialLoad = false;
                 }
             } catch (error) {
-                addLog("API Error", "ERROR");
+                addLog("Sync Error", "ERROR");
             }
         }
 
