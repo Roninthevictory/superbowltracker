@@ -140,7 +140,6 @@
                 <div>[SYSTEM] Data powered by ESPN Public API.</div>
             </div>
 
-            <!-- Enhanced Disclaimer -->
             <div class="border-t border-white/5 pt-4 mt-2">
                 <p class="text-[9px] text-gray-600 leading-tight uppercase font-medium">
                     <span class="text-gray-500 font-bold tracking-widest">LEGAL NOTICE:</span> This application is an <span class="text-white">independent fan-made project</span>. It is <span class="text-red-500 font-bold underline">NOT affiliated with, sponsored by, endorsed by, or officially connected</span> to ESPN, the NFL, or any of their subsidiaries. All trademarks are the property of their respective owners.
@@ -213,8 +212,8 @@
                 const response = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
                 const data = await response.json();
                 
-                // For Super Bowl, we look for postseason type 3
-                const sbGame = data.events.find(e => e.season.type === 3);
+                // Prioritize postseason (Super Bowl)
+                const sbGame = data.events.find(e => e.season.type === 3) || data.events[0];
 
                 if (sbGame) {
                     const comp = sbGame.competitions[0];
@@ -226,6 +225,7 @@
                     const odds = comp.odds?.[0];
                     const broadcast = comp.geoBroadcasts?.[0]?.media?.shortName || "TV";
 
+                    // Update UI Scores & Teams
                     document.getElementById('home-name').textContent = home.team.abbreviation;
                     document.getElementById('home-logo').src = home.team.logo;
                     document.getElementById('home-score').textContent = home.score;
@@ -239,18 +239,31 @@
                     document.getElementById('game-status').textContent = status.type.detail;
                     document.getElementById('broadcast-info').textContent = broadcast;
 
+                    // Possession Detection
+                    let possessionTeamName = "N/A";
+                    if (situation && situation.possession) {
+                        const possessingTeam = [home, away].find(t => t.team.id === situation.possession);
+                        if (possessingTeam) {
+                            possessionTeamName = possessingTeam.team.displayName;
+                            // Update UI indicators
+                            document.getElementById('home-possession').classList.toggle('hidden', home.team.id !== situation.possession);
+                            document.getElementById('away-possession').classList.toggle('hidden', away.team.id !== situation.possession);
+                        }
+                    } else {
+                        document.getElementById('home-possession').classList.add('hidden');
+                        document.getElementById('away-possession').classList.add('hidden');
+                    }
+
                     if (situation) {
                         document.getElementById('down-distance').textContent = situation.downDistanceText || "";
                         document.getElementById('down-distance').classList.toggle('hidden', !situation.downDistanceText);
-                        
-                        document.getElementById('home-possession').classList.toggle('hidden', situation.lastPlay?.team?.id !== home.team.id);
-                        document.getElementById('away-possession').classList.toggle('hidden', situation.lastPlay?.team?.id !== away.team.id);
                     }
 
                     if (odds) {
                         document.getElementById('odds-display').textContent = `Line: ${odds.details} | O/U: ${odds.overUnder}`;
                     }
 
+                    // Win Probability
                     const homeProb = situation?.lastPlay?.probability?.homeWinPercentage || 0.5;
                     document.getElementById('home-win-bar').style.width = `${homeProb * 100}%`;
                     document.getElementById('away-win-bar').style.width = `${(1 - homeProb) * 100}%`;
@@ -258,10 +271,17 @@
 
                     document.getElementById('live-indicator').classList.toggle('hidden', status.type.state !== "in");
 
-                    const eventHash = `${home.score}-${away.score}-${status.type.state}-${situation?.downDistanceText}`;
+                    // Webhook Logic: Broadcast on score, status, or possession change
+                    const eventHash = `${home.score}-${away.score}-${status.type.state}-${situation?.downDistanceText}-${situation?.possession}`;
                     if (eventHash !== lastEventHash) {
                         if (!isInitialLoad) {
-                            const msg = `🏈 **Live Update - Super Bowl LX**\n**${home.team.displayName} ${home.score}** - **${away.team.displayName} ${away.score}**\n*${status.type.detail}*${situation?.downDistanceText ? `\n> ${situation.downDistanceText}` : ''}\n\n_Brought to you by Fan Tracker (ESPN API)_`;
+                            const msg = `🏈 **Live Update - Super Bowl LX**\n` +
+                                        `**${home.team.displayName} ${home.score}** - **${away.team.displayName} ${away.score}**\n` +
+                                        `*Status: ${status.type.detail}*\n` +
+                                        `${situation?.downDistanceText ? `> **Play:** ${situation.downDistanceText}\n` : ''}` +
+                                        `> **Possession:** ${possessionTeamName}\n\n` +
+                                        `_Source: ESPN Feed via Fan Tracker_`;
+                            
                             broadcastUpdate(msg);
                         }
                         lastEventHash = eventHash;
